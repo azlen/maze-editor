@@ -142,7 +142,6 @@
 (function() {
 	window.getClosestDataID = function(element) {
 		while(element) {
-			console.log(element);
 			if(element.hasAttribute('data-id')) {
 				return element.getAttribute('data-id');
 			}
@@ -158,19 +157,25 @@
 
 let p1, p2;
 
-let handles = [];
+let entities = {};
 
-let handleContainer, wallContainer;
-let paper = svg('svg.paper', [
-	svg('image.maze', { href: 'images/maze.png' }),
-	wallContainer = svg('g'),
-	handleContainer = svg('g'),
+let maze;
+
+let paper, handleContainer, wallContainer;
+let container = h('div', [
+	paper = svg('svg.paper', [
+		svg('image.maze', { href: 'images/maze.png' }),
+		wallContainer = svg('g'),
+		handleContainer = svg('g'),
+	]),
 ]);
 
 let viewBox = {
 	x: 0, y: 0,
-	scale: 1,
+	scale: 2.5,
 }
+
+let database = firebase.database();
 
 /* --------------------================-------------------- */
 /*                        Functions                         */
@@ -186,13 +191,23 @@ function updateViewBox() {
 }
 
 /* --------------------================-------------------- */
-/*                         Handles                          */
+/*                           Other                          */
 /* --------------------================-------------------- */
 
-class Handle {
-	constructor(x, y) { /*++++*/
+class Entity {
+	constructor() {
 		this.id = id();
-		handles[this.id] = this;
+		entities[this.id] = this;
+	}
+
+	removeReference() {
+		delete entities[this.id];
+	}
+}
+
+class Handle extends Entity {
+	constructor(x, y) { /*++++*/
+		super();
 
 		this.x = x;
 		this.y = y;
@@ -425,18 +440,17 @@ class Handle {
 	// destroy this handle
 	destroy() {
 		this.element.parentElement.removeChild(this.element); // remove handle from it's parent
-		if(this.handle) this.handle.destroy(); // destroy rotation handle if exists
+		this.removeReference();	
 	}
 }
 
-/* --------------------================-------------------- */
-/*                          Other                           */
-/* --------------------================-------------------- */
-
-class Wall {
+class Wall extends Entity {
 	constructor(pA, pB) {
+		super();
+
 		this.pA = pA;
 		this.pB = pB;
+		this.bezierHandle = null; // quadratic bezier
 
 		this._render();
 
@@ -447,16 +461,81 @@ class Wall {
 	}
 
 	updatePath () {
-		this.element.setAttribute('x1', this.pA.x);
-		this.element.setAttribute('y1', this.pA.y);
-		this.element.setAttribute('x2', this.pB.x);
-		this.element.setAttribute('y2', this.pB.y);
+		this.element.setAttribute('d', `
+			M ${this.pA.x} ${this.pA.y}
+			${this.bezierHandle ? `Q
+				${this.bezierHandle ? this.bezierHandle.x : 0}
+				${this.bezierHandle ? this.bezierHandle.y : 0}
+			` : 'L'}
+			${this.pB.x} ${this.pB.y}
+		`);
+	}
+
+	toggleBezierHandle() {
+		if(!this.bezierHandle) {
+			let midX = (this.pA.x + this.pB.x) / 2;
+			let midY = (this.pA.y + this.pB.y) / 2;
+
+			this.bezierHandle = new Handle(midX, midY);
+			this.bezierHandle.element.classList.add('bezier-handle');
+
+			this.bezierHandle.applyCallback(this.updatePath.bind(this));
+		} else {
+			this.bezierHandle.destroy();
+			this.bezierHandle = null;
+		}
 	}
 
 	_render() {
-		this.element = svg('line.wall');
+		this.element = svg(`path.wall`, { 'data-id': this.id });
 
 		wallContainer.appendChild(this.element);
+	}
+
+	destroy() {
+		this.element.parentElement.removeChild(this.element);
+		this.removeReference();
+	}
+}
+
+class Maze3D {
+	constructor() {
+		this.initThreeJS();
+
+		this.update();
+	}
+
+	initThreeJS() {
+		this.scene = new THREE.Scene();
+		this.camera = new THREE.PerspectiveCamera( 75, 450 / 300, 0.1, 1000 );
+	
+		this.renderer = new THREE.WebGLRenderer();
+		this.renderer.setSize( 450, 300 );
+
+		/*var shape = new THREE.Shape();
+		shape.moveTo( 0, 0 );
+		var numSteps = 10, stepSize = 10;
+
+		for ( var i = 0; i < numSteps; i ++ ) {
+
+		    shape.lineTo( i * stepSize, ( i + 1 ) * stepSize );
+		    shape.lineTo( ( i + 1 ) * stepSize, ( i + 1 ) * stepSize );
+
+		}
+
+		var extrudeSettings = { amount: 2, bevelEnabled: false };
+		var geometry = new THREE.ExtrudeGeometry( shape, extrudeSettings );
+
+		var material = new THREE.MeshBasicMaterial( {color: 0xffffff } );
+		var steps = new THREE.Mesh( geometry, material );
+
+		this.scene.add( steps );
+		this.camera.position.z = 100;*/
+	}
+
+	update() {
+		requestAnimationFrame( this.update.bind(this) );
+		this.renderer.render( this.scene, this.camera );
 	}
 }
 
@@ -466,12 +545,20 @@ class Wall {
 
 hotkeys('ctrl+q', function(event, handler) {
 	new Handle(mouse.x, mouse.y);
-})
+});
+
+hotkeys('ctrl+w', function(event, handler) {
+	let _id = getClosestDataID(mouse.target);
+	let w = entities[_id];
+	if(w.constructor === Wall) {
+		w.toggleBezierHandle();
+	}
+});
 
 hotkeys('ctrl+1, ctrl+2', function(event, handler) {
 	let _id = getClosestDataID(mouse.target);
-	let p = handles[_id];
-	if(p) {
+	let p = entities[_id];
+	if(p.constructor === Handle) {
 		switch(handler.key) {
 			case 'ctrl+2': 
 				p2 = p;
@@ -483,19 +570,15 @@ hotkeys('ctrl+1, ctrl+2', function(event, handler) {
 	}
 });
 
+hotkeys('ctrl+x', function(event, handler) {
+	let _id = getClosestDataID(mouse.target);
+	let entity = entities[_id];
+	if(entity) entity.destroy();
+})
+
 /* --------------------================-------------------- */
 /*                          Events                          */
 /* --------------------================-------------------- */
-
-// deselect entities when clicking background
-paper.addEventListener('mousedown', function(e) {
-	if(e.target === paper && selected !== null) {
-		selected.deselect(); // hides handles and such
-		selected = null; // no longer selected
-
-		updateUI();
-	}
-});
 
 // zoom + pan
 paper.addEventListener('mousewheel', function(e) {
@@ -505,7 +588,7 @@ paper.addEventListener('mousewheel', function(e) {
 	// mousewheel event w/ e.ctrlKey in Chrome is actually pinch-zoom
 	if(e.ctrlKey) { // zoom
 		viewBox.scale += e.deltaY * viewBox.scale / 100;
-		viewBox.scale = Math.min(Math.max(viewBox.scale, 0.1), 2)
+		viewBox.scale = Math.min(Math.max(viewBox.scale, 0.1), 3);
 	}else{ // pan
 		viewBox.x += e.deltaX * viewBox.scale; // multiply by scale to always pan at same rate
 		viewBox.y += e.deltaY * viewBox.scale;
@@ -522,8 +605,12 @@ window.addEventListener('load', updateViewBox);
 /*                        Initialize                        */
 /* --------------------================-------------------- */
 
-// add svg element to document
-document.body.appendChild(paper);
+maze = new Maze3D();
+
+container.appendChild(maze.renderer.domElement);
+
+// add elements to document
+document.body.appendChild(container);
 
 /* --------------------================-------------------- */
 /*                            Fin                           */

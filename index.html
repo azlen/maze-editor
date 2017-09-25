@@ -1,12 +1,29 @@
 <!DOCTYPE html>
 <html>
 <head>
+	<meta charset=utf-8>
 	<title>Maze</title>
 
 	<link rel="stylesheet" type="text/css" href="css/main.css" />
 </head>
 <body>
 
+
+	<script src="https://www.gstatic.com/firebasejs/4.4.0/firebase.js"></script>
+	<script>
+	  // Initialize Firebase
+	  var config = {
+	    apiKey: "AIzaSyAQ0ysYhdYrcism4LeeCzfSzxvlv6yF_jY",
+	    authDomain: "maze-editor.firebaseapp.com",
+	    databaseURL: "https://maze-editor.firebaseio.com",
+	    projectId: "maze-editor",
+	    storageBucket: "",
+	    messagingSenderId: "25412801683"
+	  };
+	  firebase.initializeApp(config);
+	</script>
+
+	<script src="lib/three.js"></script>
 	<script src="lib/hotkeys.min.js"></script>
 	<script src="main.js"></script>
 </body>
