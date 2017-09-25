@@ -172,7 +172,7 @@ let container = h('div', [
 
 let viewBox = {
 	x: 0, y: 0,
-	scale: 2.5,
+	scale: 5,
 }
 
 let database = firebase.database();
@@ -183,11 +183,25 @@ let database = firebase.database();
 
 function updateViewBox() {
 	paper.setAttribute('viewBox', `
-		${viewBox.x/* - paper.width.baseVal.value * viewBox.scale / 2*/},
+		${viewBox.x/* - paper.width.baseVal.value * viewBox.scale / 4*/},
 		${viewBox.y/* - paper.height.baseVal.value * viewBox.scale / 2*/},
 		${paper.width.baseVal.value * viewBox.scale},
 		${paper.height.baseVal.value * viewBox.scale}
 	`);
+}
+
+function getEntity(_id) {
+	if(entities[_id]) {
+		return entities[_id];
+	} else {
+		createEntity(_id);
+	}
+}
+
+function createEntity(_id) {
+	database.ref(`entities/${_id}`).once('value', function(snapshot) {
+		new (eval(`${snapshot.val().type}`))(_id);
+	});
 }
 
 /* --------------------================-------------------- */
@@ -195,25 +209,40 @@ function updateViewBox() {
 /* --------------------================-------------------- */
 
 class Entity {
-	constructor() {
-		this.id = id();
+	constructor(_id) {
+		if(_id) {
+			this.id = _id;
+		} else {
+			this.id = database.ref('entities').push({}).key;
+		}
+
 		entities[this.id] = this;
+
+		this.ref = database.ref(`entities/${this.id}`);
 	}
 
-	removeReference() {
-		delete entities[this.id];
+	toJSON() {}
+	fromJSON() {}
+
+	removeReference(inDatabase) {
+		if(entities[this.id]) {
+			if(inDatabase !== false) this.ref.remove();
+			delete entities[this.id];
+		}
 	}
 }
 
 class Handle extends Entity {
-	constructor(x, y) { /*++++*/
-		super();
-
-		this.x = x;
-		this.y = y;
-
-		this._x = x; // actual x position before constraints are applied
-		this._y = y; // actual y position before constraints are applied
+	// ARGS
+	// x (number), y (number)
+	// OR
+	// id (string)
+	constructor() { /*++++*/
+		if(arguments[0].constructor === Number) {
+			super();
+		} else {
+			super(arguments[0]);
+		}
 
 		this._origin = {x: 0, y: 0};
 
@@ -228,6 +257,27 @@ class Handle extends Entity {
 		/*~~~*/ this.dragging = false;
 
 		/*~~~*/ this._render();
+
+		if(arguments[0].constructor === Number) {
+			this.setPosition(arguments[0], arguments[1], false);
+		}
+
+		this.ref.on('value', function(snapshot) {
+			this.fromJSON(snapshot.val());
+		}.bind(this));
+	}
+
+	toJSON() {
+		return {
+			type: 'Handle',
+			x: this._x,
+			y: this._y
+		}
+	}
+
+	fromJSON(o) {
+		if(o === null) return;
+		this.setPosition(o.x, o.y, true);
 	}
 
 	// make position of this handle relative to specified parent handle
@@ -307,7 +357,7 @@ class Handle extends Entity {
 		this.callbacks = this.callbacks.concat([].slice.call(arguments));
 	}
 
-	removeCallback(c) {
+	removeCallback() {
 		[].slice.call(arguments).forEach(function(fn) {
 			this.callbacks.splice(this.callbacks.indexOf(fn), 1);
 		}.bind(this));
@@ -374,6 +424,9 @@ class Handle extends Entity {
 
 		// apply transformations so that we can see changes
 		/*~~~*/ this.applyTransformations();
+
+		// update database
+		this.ref.set(this.toJSON());
 	}
 
 	// activate all callbacks, passing this handle as an argument
@@ -417,7 +470,6 @@ class Handle extends Entity {
 				cx: 0, cy: 0, r: 2,
 			}),
 		]);
-		this.updatePosition();
 
 		// make this handle draggable
 		draggable(this.element, {
@@ -445,19 +497,74 @@ class Handle extends Entity {
 }
 
 class Wall extends Entity {
-	constructor(pA, pB) {
-		super();
+	// ARGS:
+	// point A (handle), point B (handle)
+	// OR
+	// id (string)
+	constructor() {
+		if(arguments[0].constructor === Handle) {
+			super();
 
-		this.pA = pA;
-		this.pB = pB;
+			this.pA = arguments[0];
+			this.pB = arguments[1];
+
+			this.applyCallbacks();
+
+
+			this.ref.set(this.toJSON());
+		} else {
+			super(arguments[0]);
+		}
+		
 		this.bezierHandle = null; // quadratic bezier
 
 		this._render();
 
-		this.pA.applyCallback(this.updatePath.bind(this));
-		this.pB.applyCallback(this.updatePath.bind(this));
+		this.ref.on('value', function(snapshot) {
+			this.fromJSON(snapshot.val());
+		}.bind(this));
 
-		this.updatePath();
+		if(arguments[0].constructor === Handle) {
+			this.updatePath();
+		}
+	}
+
+	toJSON() {
+		return {
+			type: 'Wall',
+			pA_id: this.pA.id,
+			pB_id: this.pB.id,
+			bezierHandle_id: (this.bezierHandle 
+				? this.bezierHandle.toJSON()
+				: null),
+		};
+	}
+
+	fromJSON(o) {
+		if(o === null) return;
+		if(!this.pA && !this.pB) {
+			this.pA = getEntity(o.pA_id); 
+			this.pB = getEntity(o.pB_id);
+
+			this.applyCallbacks();
+			this.updatePath();
+		}
+		if(!this.bezierHandle && o.bezierHandle_id) {
+			this.bezierHandle = getEntity(o.bezierHandle_id);
+		};
+	}
+
+	removeCallbacks() {}
+	applyCallbacks() {
+		let pA_c = this.updatePath.bind(this);
+		let pB_c = this.updatePath.bind(this);
+		this.pA.applyCallback(pA_c);
+		this.pB.applyCallback(pB_c);
+
+		this.removeCallbacks = function() {
+			this.pA.removeCallback(pA_c);
+			this.pB.removeCallback(pB_c);
+		}
 	}
 
 	updatePath () {
@@ -478,6 +585,8 @@ class Wall extends Entity {
 
 			this.bezierHandle = new Handle(midX, midY);
 			this.bezierHandle.element.classList.add('bezier-handle');
+			this.bezierHandle.element.removeAttribute('data-id');
+			this.bezierHandle.removeReference(false);
 
 			this.bezierHandle.applyCallback(this.updatePath.bind(this));
 		} else {
@@ -494,6 +603,8 @@ class Wall extends Entity {
 
 	destroy() {
 		this.element.parentElement.removeChild(this.element);
+		if(this.bezierHandle) this.bezierHandle.destroy();
+		this.removeCallbacks();
 		this.removeReference();
 	}
 }
@@ -573,7 +684,12 @@ hotkeys('ctrl+1, ctrl+2', function(event, handler) {
 hotkeys('ctrl+x', function(event, handler) {
 	let _id = getClosestDataID(mouse.target);
 	let entity = entities[_id];
-	if(entity) entity.destroy();
+	if(entity) {
+		if(entity.callbacks && entity.callbacks.length > 0) {
+			return;
+		}
+		entity.destroy();
+	}
 })
 
 /* --------------------================-------------------- */
@@ -588,7 +704,7 @@ paper.addEventListener('mousewheel', function(e) {
 	// mousewheel event w/ e.ctrlKey in Chrome is actually pinch-zoom
 	if(e.ctrlKey) { // zoom
 		viewBox.scale += e.deltaY * viewBox.scale / 100;
-		viewBox.scale = Math.min(Math.max(viewBox.scale, 0.1), 3);
+		viewBox.scale = Math.min(Math.max(viewBox.scale, 0.1), 10);
 	}else{ // pan
 		viewBox.x += e.deltaX * viewBox.scale; // multiply by scale to always pan at same rate
 		viewBox.y += e.deltaY * viewBox.scale;
@@ -608,6 +724,16 @@ window.addEventListener('load', updateViewBox);
 maze = new Maze3D();
 
 container.appendChild(maze.renderer.domElement);
+
+// add entities from database
+
+database.ref('entities').on('child_added', function(snapshot) {
+	getEntity(snapshot.key);
+});
+
+database.ref('entities').on('child_removed', function(snapshot) {
+	entities[snapshot.key].destroy();
+});
 
 // add elements to document
 document.body.appendChild(container);

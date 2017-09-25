@@ -34,6 +34,10 @@ canvas {
 	stroke: #FFFFFF;
 }
 
+.bezier-handle {
+	fill: #FF0099;
+}
+
 .handle:hover, .wall:hover {
 	stroke: #FF0000;
 }
