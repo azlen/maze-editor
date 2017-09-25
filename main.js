@@ -192,15 +192,15 @@ function updateViewBox() {
 
 function getEntity(_id) {
 	if(entities[_id]) {
-		return entities[_id];
+		return Promise.resolve(entities[_id]);
 	} else {
-		createEntity(_id);
+		return createEntity(_id);
 	}
 }
 
 function createEntity(_id) {
-	database.ref(`entities/${_id}`).once('value', function(snapshot) {
-		new (eval(`${snapshot.val().type}`))(_id);
+	return database.ref(`entities/${_id}`).once('value').then(function(snapshot) {
+		return new classReference[snapshot.val().type](_id);
 	});
 }
 
@@ -535,22 +535,41 @@ class Wall extends Entity {
 			pA_id: this.pA.id,
 			pB_id: this.pB.id,
 			bezierHandle_id: (this.bezierHandle 
-				? this.bezierHandle.toJSON()
+				? this.bezierHandle.id
 				: null),
 		};
 	}
 
 	fromJSON(o) {
+		let pr = Promise.resolve();
 		if(o === null) return;
 		if(!this.pA && !this.pB) {
-			this.pA = getEntity(o.pA_id); 
-			this.pB = getEntity(o.pB_id);
+			pr.then(
+				getEntity(o.pA_id)
+					.then(function(handle) {
+						this.pA = handle;
+					}.bind(this))
+			);
 
-			this.applyCallbacks();
-			this.updatePath();
+			pr.then(
+				getEntity(o.pB_id)
+					.then(function(handle) {
+						this.pB = handle;
+					}.bind(this))
+			);
+			
+			pr.then(function() {
+				this.applyCallbacks();
+				this.updatePath();
+			}.bind(this));
 		}
 		if(!this.bezierHandle && o.bezierHandle_id) {
-			this.bezierHandle = getEntity(o.bezierHandle_id);
+			pr.then(
+				getEntity(o.bezierHandle_id)
+					.then(function(handle) {
+						this.setBezierHandle(handle);
+					}.bind(this))
+			);
 		};
 	}
 
@@ -578,21 +597,29 @@ class Wall extends Entity {
 		`);
 	}
 
+	setBezierHandle(handle) {
+		this.bezierHandle = handle;
+		this.bezierHandle.element.classList.add('bezier-handle');
+		this.bezierHandle.element.removeAttribute('data-id');
+		this.bezierHandle.removeReference(false);
+
+		this.bezierHandle.applyCallback(this.updatePath.bind(this));
+
+		this.updatePath();
+	}
+
 	toggleBezierHandle() {
 		if(!this.bezierHandle) {
 			let midX = (this.pA.x + this.pB.x) / 2;
 			let midY = (this.pA.y + this.pB.y) / 2;
 
-			this.bezierHandle = new Handle(midX, midY);
-			this.bezierHandle.element.classList.add('bezier-handle');
-			this.bezierHandle.element.removeAttribute('data-id');
-			this.bezierHandle.removeReference(false);
-
-			this.bezierHandle.applyCallback(this.updatePath.bind(this));
+			this.setBezierHandle(new Handle(midX, midY));
 		} else {
 			this.bezierHandle.destroy();
 			this.bezierHandle = null;
 		}
+
+		this.ref.set(this.toJSON());
 	}
 
 	_render() {
@@ -649,6 +676,8 @@ class Maze3D {
 		this.renderer.render( this.scene, this.camera );
 	}
 }
+
+let classReference = { Entity, Handle, Wall, Maze3D };
 
 /* --------------------================-------------------- */
 /*                         Hotkeys                          */
@@ -732,7 +761,7 @@ database.ref('entities').on('child_added', function(snapshot) {
 });
 
 database.ref('entities').on('child_removed', function(snapshot) {
-	entities[snapshot.key].destroy();
+	if(entities[snapshot.key]) entities[snapshot.key].destroy();
 });
 
 // add elements to document
