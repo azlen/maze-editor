@@ -161,13 +161,33 @@ let entities = {};
 
 let maze;
 
-let paper, handleContainer, wallContainer;
-let container = h('div', [
+let paper, handleContainer, wallContainer, commentsContainer;
+let pointCounter, wallCounter;
+let container = h('div.container', [
 	paper = svg('svg.paper', [
 		svg('image.maze', { href: 'images/maze.png' }),
 		wallContainer = svg('g'),
 		handleContainer = svg('g'),
 	]),
+	h('div.info', [
+		h('h3', 'stats'),
+		h('ul', [
+			h('li', 'points: ', pointCounter = h('span', 0)),
+			h('li', 'walls: ', wallCounter = h('span', 0)),
+		]),
+		h('h3', 'hotkeys'),
+		h('ul', [
+			h('li', h('b', 'ctrl+1: '), ' set first point (hovered point) for line'),
+			h('li', h('b', 'ctrl+2: '), ' set second point (hovered point) and create line between first and second point (also, second point becomes new first point)'),
+			h('li', h('b', 'ctrl+q: '), ' create point at mouse pos'),
+			h('li', h('b', 'ctrl+w: '), ' toggle bezier for line (hovered line)'),
+			h('li', h('b', 'ctrl+x: '), ' delete line/point at mouse pos (point must have not lines attached)'),
+		]),
+		h('h3', 'comments'),
+		commentsContainer = h('ul.comments', [
+			h('li', h('i', 'coming soon'))
+		]),
+	])
 ]);
 
 let viewBox = {
@@ -278,6 +298,17 @@ function pointsToShape(points) {
 		}
 	});
 	return shape;
+}
+
+function addCounter(c, n) {
+	switch(c.constructor) {
+		case Handle:
+			pointCounter.textContent = Number(pointCounter.textContent) + n;
+			break;
+		case Wall:
+			wallCounter.textContent = Number(wallCounter.textContent) + n;
+			break;
+	}
 }
 
 /* --------------------================-------------------- */
@@ -888,11 +919,18 @@ container.appendChild(maze.renderer.domElement);
 // add entities from database
 
 database.ref('entities').on('child_added', function(snapshot) {
-	getEntity(snapshot.key);
+	getEntity(snapshot.key).then(function(entity) {
+		addCounter( entity, 1 );
+	});
 });
 
 database.ref('entities').on('child_removed', function(snapshot) {
-	if(entities[snapshot.key]) entities[snapshot.key].destroy();
+		
+
+	if(entities[snapshot.key]) {
+		addCounter(entities[snapshot.key], -1);
+		entities[snapshot.key].destroy();
+	}
 });
 
 // add elements to document
