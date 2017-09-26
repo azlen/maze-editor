@@ -175,8 +175,12 @@ let container = h('div.container', [
 			h('li', 'points: ', pointCounter = h('span', 0)),
 			h('li', 'walls: ', wallCounter = h('span', 0)),
 		]),
-		h('h3', 'hotkeys'),
+		h('h3', 'controls / hotkeys'),
 		h('ul', [
+			h('li', 'use chrome browser'),
+			h('li', 'scroll w/ trackpad in any direction'),
+			h('li', 'pinch zoom w/ trackpad'),
+			h('br'), h('br'),
 			h('li', h('b', 'ctrl+1: '), ' set first point (hovered point) for line'),
 			h('li', h('b', 'ctrl+2: '), ' set second point (hovered point) and create line between first and second point (also, second point becomes new first point)'),
 			h('li', h('b', 'ctrl+q: '), ' create point at mouse pos'),
@@ -263,7 +267,7 @@ function strokeToPoints(path, strokeWidth, angleT, distT, steps) {
 
 		if(	Math.abs(lastAngle - normal) > angleT ||
 			distance(lastPos, point) > distT || 
-			percent === 1) {
+			percent >= 1) {
 			
 			points.push(addVec( point, strokeWidth, normal));
 			points.splice(0, 0, addVec( point, strokeWidth, normal + Math.PI ));
@@ -935,6 +939,8 @@ database.ref('entities').on('child_removed', function(snapshot) {
 
 // add elements to document
 document.body.appendChild(container);
+
+updateViewBox();
 
 /* --------------------================-------------------- */
 /*                            Fin                           */
