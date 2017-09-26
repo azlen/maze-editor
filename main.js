@@ -204,6 +204,82 @@ function createEntity(_id) {
 	});
 }
 
+function getPointAtPercentLength(path, percent) {
+	// 
+	return path.getPointAtLength(path.getTotalLength() * percent);
+}
+
+function getNormalAlongPath(path, percent) {
+	let totalLength = path.getTotalLength();
+	let dA = totalLength * percent - (percent>=0.5?0.001:0);
+	let dB = totalLength * percent + (percent<0.5?0.001:0);
+	return direction(
+		path.getPointAtLength(dA),
+		path.getPointAtLength(dB)
+	) - Math.PI / 2;
+}
+
+function addVec(pos, mag, dir) {
+	return {
+		x: pos.x + Math.cos(dir) * mag,
+		y: pos.y + Math.sin(dir) * mag
+	}
+}
+
+function strokeToPoints(path, strokeWidth, angleT, distT, steps) {
+	steps = steps || Math.floor(path.getTotalLength());
+	strokeWidth = strokeWidth || 1;
+	let points = [];
+	let lastAngle = Infinity;
+	let lastPos = {x: Infinity, y: Infinity};
+
+	angleT = angleT || 0.25;
+	distT = distT || 50;
+
+	for(let i = 0; i < steps + 1; i++) {
+		let percent = 1 / steps * i;
+		let point = getPointAtPercentLength(path, percent);
+		let normal = getNormalAlongPath(path, percent);
+
+		if(	Math.abs(lastAngle - normal) > angleT ||
+			distance(lastPos, point) > distT || 
+			percent === 1) {
+			
+			points.push(addVec( point, strokeWidth, normal));
+			points.splice(0, 0, addVec( point, strokeWidth, normal + Math.PI ));
+			lastAngle = normal;
+			lastPos = point;
+		}
+	};
+
+	return points;
+}
+
+function pointsToPath(points) {
+	return `${points.map(function(p, i) {
+		return `${i===0?'M':'L'}${p.x} ${p.y}`;
+	})} Z`
+}
+
+function pointsFlipY(points) {
+	return points.map(function(p, i) {
+		return {x: p.x, y: -p.y};
+	});
+}
+
+function pointsToShape(points) {
+	let shape = new THREE.Shape();
+	shape.autoClose = true;
+	points.forEach(function(p, i) {
+		if(i === 0) {
+			shape.moveTo(p.x, p.y);
+		} else {
+			shape.lineTo(p.x, p.y);
+		}
+	});
+	return shape;
+}
+
 /* --------------------================-------------------- */
 /*                           Other                          */
 /* --------------------================-------------------- */
@@ -520,13 +596,13 @@ class Wall extends Entity {
 
 		this._render();
 
-		this.ref.on('value', function(snapshot) {
-			this.fromJSON(snapshot.val());
-		}.bind(this));
-
 		if(arguments[0].constructor === Handle) {
 			this.updatePath();
 		}
+
+		this.ref.on('value', function(snapshot) {
+			this.fromJSON(snapshot.val());
+		}.bind(this));
 	}
 
 	toJSON() {
@@ -544,6 +620,9 @@ class Wall extends Entity {
 		let pr = Promise.resolve();
 		if(o === null) return;
 		if(!this.pA && !this.pB) {
+
+			// use async await?
+
 			pr.then(
 				getEntity(o.pA_id)
 					.then(function(handle) {
@@ -573,6 +652,40 @@ class Wall extends Entity {
 		};
 	}
 
+	getPoints() {
+		if(this.bezierHandle) {
+			return strokeToPoints(this.path, 2);
+		} else {
+			return strokeToPoints(this.path, 2, null, Infinity, 2);
+		}
+	}
+
+	get3DGeometry() {
+		let shape = pointsToShape(pointsFlipY(this.getPoints()));
+
+		let extrudeSettings = { 
+			steps: 1, 
+			amount: 20, 
+			bevelEnabled: false
+		};
+		return new THREE.ExtrudeGeometry( shape, extrudeSettings );
+	}
+
+	update3D() {
+		let geometry = this.get3DGeometry();
+
+		if(this.mesh) {
+			this.mesh.geometry.dispose();
+			this.mesh.geometry = geometry;
+			return;
+		};
+
+		let material = new THREE.MeshBasicMaterial( {color: 0xffffff } );
+		this.mesh = new THREE.Mesh( geometry, material );
+
+		maze.scene.add( this.mesh );
+	}
+
 	removeCallbacks() {}
 	applyCallbacks() {
 		let pA_c = this.updatePath.bind(this);
@@ -587,7 +700,7 @@ class Wall extends Entity {
 	}
 
 	updatePath () {
-		this.element.setAttribute('d', `
+		this.path.setAttribute('d', `
 			M ${this.pA.x} ${this.pA.y}
 			${this.bezierHandle ? `Q
 				${this.bezierHandle ? this.bezierHandle.x : 0}
@@ -595,6 +708,10 @@ class Wall extends Entity {
 			` : 'L'}
 			${this.pB.x} ${this.pB.y}
 		`);
+
+		this.element.setAttribute('d', pointsToPath(this.getPoints()));
+	
+		this.update3D();
 	}
 
 	setBezierHandle(handle) {
@@ -623,6 +740,7 @@ class Wall extends Entity {
 	}
 
 	_render() {
+		this.path = svg('path');
 		this.element = svg(`path.wall`, { 'data-id': this.id });
 
 		wallContainer.appendChild(this.element);
@@ -633,6 +751,8 @@ class Wall extends Entity {
 		if(this.bezierHandle) this.bezierHandle.destroy();
 		this.removeCallbacks();
 		this.removeReference();
+
+		maze.scene.remove(this.mesh);
 	}
 }
 
@@ -645,34 +765,45 @@ class Maze3D {
 
 	initThreeJS() {
 		this.scene = new THREE.Scene();
-		this.camera = new THREE.PerspectiveCamera( 75, 450 / 300, 0.1, 1000 );
+		this.camera = new THREE.PerspectiveCamera( 75, 450 / 300, 0.1, 2000 );
 	
 		this.renderer = new THREE.WebGLRenderer();
-		this.renderer.setSize( 450, 300 );
+		this.renderer.setSize( 900, 600 );
 
-		/*var shape = new THREE.Shape();
-		shape.moveTo( 0, 0 );
-		var numSteps = 10, stepSize = 10;
+		this.renderer.domElement.style.width = '450px';
+		this.renderer.domElement.style.height = '300px';
 
-		for ( var i = 0; i < numSteps; i ++ ) {
+		// let shape = pointsToShape(strokeToPoints(svg('path', { 'd': 'M0 0L10 0L10 10' })));
+		/*let shape = pointsToShape([{x: 0, y: 0}, {x: 10, y: 0}, {x: 10, y: 10}]);
 
-		    shape.lineTo( i * stepSize, ( i + 1 ) * stepSize );
-		    shape.lineTo( ( i + 1 ) * stepSize, ( i + 1 ) * stepSize );
+		let extrudeSettings = { 
+			steps: 1, 
+			amount: 10, 
+			bevelEnabled: false
+		};
+		let geometry = new THREE.ExtrudeGeometry( shape, extrudeSettings );
 
-		}
+		let material = new THREE.MeshBasicMaterial( {color: 0xffffff } );
+		let mesh = new THREE.Mesh( geometry, material );
 
-		var extrudeSettings = { amount: 2, bevelEnabled: false };
-		var geometry = new THREE.ExtrudeGeometry( shape, extrudeSettings );
+		this.scene.add( mesh );*/
 
-		var material = new THREE.MeshBasicMaterial( {color: 0xffffff } );
-		var steps = new THREE.Mesh( geometry, material );
+		this.camera.position.x = 950;
+		this.camera.position.y = -900;
+		this.camera.position.z = 1300;
+	}
 
-		this.scene.add( steps );
-		this.camera.position.z = 100;*/
+	saveAsObj() {
+		let exporter = new THREE.OBJExporter();
+		let objscene = exporter.parse(this.scene);
+
+		let blob = new Blob([objscene], {'type': 'text/plain'});
+		saveAs(blob, "maze.obj");
 	}
 
 	update() {
 		requestAnimationFrame( this.update.bind(this) );
+
 		this.renderer.render( this.scene, this.camera );
 	}
 }

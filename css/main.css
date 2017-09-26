@@ -25,9 +25,7 @@ canvas {
 }
 
 .wall {
-	stroke: #000000;
-	stroke-width: 2px;
-	fill: none;
+	fill: #000000;
 }
 
 .handle {
