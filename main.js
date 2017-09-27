@@ -869,11 +869,11 @@ hotkeys('1, 2', function(event, handler) {
 	let p = entities[_id];
 	if(p.constructor === Handle) {
 		switch(handler.key) {
-			case 'ctrl+2': 
+			case '2': 
 				p2 = p;
 				if(p1 && p1 !== p2) new Wall(p1, p2);
 				p2 = null;
-			case 'ctrl+1':
+			case '1':
 				p1 = p;
 		}
 	}
