@@ -57,7 +57,7 @@
 })(); // h, svg
 
 (function() {
-	let target, callbacks;
+	let targets = [], callbacks = [];
 	let down, x, y, dx, dy;
 
 	window.mouse = {x: 100, y: 100, target: null};
@@ -65,11 +65,12 @@
 	function setMouse(e) {
 		mouse.x = e.clientX * viewBox.scale + viewBox.x;
 		mouse.y = e.clientY * viewBox.scale + viewBox.y;
+		mouse.shiftKey = e.shiftKey;
 	}
 
 	function _mousedown(fns, e) {
-		target = e.target;
-		callbacks = fns;
+		targets.push(e.target);
+		callbacks.push(fns);
 
 		setMouse(e);
 		x = mouse.x;
@@ -85,12 +86,12 @@
 		setMouse(e);
 		mouse.target = e.target;
 
-		if(down) {
+		for(let i = 0; i < targets.length; i++) {
 			dx = mouse.x - x;
 			dy = mouse.y - y;
 
-			if(callbacks.hasOwnProperty('mousemove')) {
-				callbacks.mousemove(dx, dy);
+			if(callbacks[i].hasOwnProperty('mousemove')) {
+				callbacks[i].mousemove(dx, dy);
 			}
 
 			x = mouse.x;
@@ -105,6 +106,9 @@
 			if(callbacks.hasOwnProperty('mouseup')) {
 				callbacks.mouseup();
 			}
+
+			targets = [];
+			callbacks = [];
 		}
 	}
 
@@ -177,14 +181,13 @@ let container = h('div.container', [
 		]),
 		h('h3', 'controls / hotkeys'),
 		h('ul', [
-			h('li', 'use chrome browser'),
-			h('li', 'scroll w/ trackpad in any direction'),
-			h('li', 'pinch zoom w/ trackpad'),
+			h('li', 'shift+drag to pan'),
+			h('li', 'scroll mousewheel/trackpad to zoom'),
 			h('br'), h('br'),
-			h('li', h('b', 'ctrl+1: '), ' set first point (hovered point) for line'),
-			h('li', h('b', 'ctrl+2: '), ' set second point (hovered point) and create line between first and second point (also, second point becomes new first point)'),
-			h('li', h('b', 'ctrl+q: '), ' create point at mouse pos'),
-			h('li', h('b', 'ctrl+w: '), ' toggle bezier for line (hovered line)'),
+			h('li', h('b', '1: '), ' set first point (hovered point) for line'),
+			h('li', h('b', '2: '), ' set second point (hovered point) and create line between first and second point (also, second point becomes new first point)'),
+			h('li', h('b', 'q: '), ' create point at mouse pos'),
+			h('li', h('b', 'w: '), ' toggle bezier for line (hovered line)'),
 			h('li', h('b', 'ctrl+x: '), ' delete line/point at mouse pos (point must have not lines attached)'),
 		]),
 		h('h3', 'comments'),
@@ -849,11 +852,11 @@ let classReference = { Entity, Handle, Wall, Maze3D };
 /*                         Hotkeys                          */
 /* --------------------================-------------------- */
 
-hotkeys('ctrl+q', function(event, handler) {
+hotkeys('q', function(event, handler) {
 	new Handle(mouse.x, mouse.y);
 });
 
-hotkeys('ctrl+w', function(event, handler) {
+hotkeys('w', function(event, handler) {
 	let _id = getClosestDataID(mouse.target);
 	let w = entities[_id];
 	if(w.constructor === Wall) {
@@ -861,7 +864,7 @@ hotkeys('ctrl+w', function(event, handler) {
 	}
 });
 
-hotkeys('ctrl+1, ctrl+2', function(event, handler) {
+hotkeys('1, 2', function(event, handler) {
 	let _id = getClosestDataID(mouse.target);
 	let p = entities[_id];
 	if(p.constructor === Handle) {
@@ -897,7 +900,7 @@ paper.addEventListener('mousewheel', function(e) {
 	e.preventDefault();
 	e.stopPropagation();
 	// mousewheel event w/ e.ctrlKey in Chrome is actually pinch-zoom
-	if(e.ctrlKey) { // zoom
+	/*if(e.ctrlKey) { // zoom
 		viewBox.scale += e.deltaY * viewBox.scale / 100;
 		viewBox.scale = Math.min(Math.max(viewBox.scale, 0.1), 10);
 	}else{ // pan
@@ -905,11 +908,30 @@ paper.addEventListener('mousewheel', function(e) {
 		viewBox.y += e.deltaY * viewBox.scale;
 	}
 	updateViewBox();	
+
+	console.log(e);*/
+
+	viewBox.scale += e.deltaY * viewBox.scale / 300;
+	viewBox.scale = Math.min(Math.max(viewBox.scale, 0.1), 10);
+
+	updateViewBox();	
 });
 
 // resize viewBox whenever screen resizes, keeps SVG same size
 window.addEventListener('resize', updateViewBox);
 window.addEventListener('load', updateViewBox);
+
+draggable(paper, {
+	mousemove: function(dx, dy) {
+		if(mouse.shiftKey) {
+			console.log(dx, dy);
+			viewBox.x = Math.round(viewBox.x - dx * 0.6);
+			viewBox.y = Math.round(viewBox.y - dy * 0.6);
+
+			updateViewBox();
+		}
+	}
+});
 
 
 /* --------------------================-------------------- */
