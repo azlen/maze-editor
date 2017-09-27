@@ -23,7 +23,7 @@ canvas {
 	right: 0;
 	bottom: 0;
 
-	display: none;
+	/*display: none;*/
 }
 
 .maze {

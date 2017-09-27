@@ -165,11 +165,11 @@ let entities = {};
 
 let maze;
 
-let paper, handleContainer, wallContainer, commentsContainer;
+let paper, image, handleContainer, wallContainer, commentsContainer;
 let pointCounter, wallCounter;
 let container = h('div.container', [
 	paper = svg('svg.paper', [
-		svg('image.maze', { href: 'images/maze.png' }),
+		image = svg('image.maze', { href: 'images/maze.png' }),
 		wallContainer = svg('g'),
 		handleContainer = svg('g'),
 	]),
@@ -189,10 +189,14 @@ let container = h('div.container', [
 			h('li', h('b', 'q: '), ' create point at mouse pos'),
 			h('li', h('b', 'w: '), ' toggle bezier for line (hovered line)'),
 			h('li', h('b', 'ctrl+x: '), ' delete line/point at mouse pos (point must have not lines attached)'),
+			h('li', h('b', 'ctrl+e: '), ' EXPORT 3D MAZE FILE (hint: you can open it with Blender, it is pretty cool!)'),
 		]),
 		h('h3', 'comments'),
 		commentsContainer = h('ul.comments', [
-			h('li', h('i', 'coming soon'))
+			h('li', h('i', 'coming soon (probably)')),
+			h('br'), h('br'),
+			h('li', 'OK, I imported the maze into Unity and started walking around and I was soooo confused and lost (and that was supposed to be in the "easy" section)... This is gonna be amazing!'),
+			h('li', 'Algernon would complete this maze faster than me!'),
 		]),
 	])
 ]);
@@ -339,10 +343,8 @@ class Entity {
 	fromJSON() {}
 
 	removeReference(inDatabase) {
-		if(entities[this.id]) {
-			if(inDatabase !== false) this.ref.remove();
-			delete entities[this.id];
-		}
+		if(inDatabase !== false) this.ref.remove();
+		delete entities[this.id];
 	}
 }
 
@@ -811,6 +813,8 @@ class Maze3D {
 		this.renderer.domElement.style.width = '450px';
 		this.renderer.domElement.style.height = '300px';
 
+		// this.scene.rotation.x = Math.PI/2;
+
 		// let shape = pointsToShape(strokeToPoints(svg('path', { 'd': 'M0 0L10 0L10 10' })));
 		/*let shape = pointsToShape([{x: 0, y: 0}, {x: 10, y: 0}, {x: 10, y: 10}]);
 
@@ -826,9 +830,21 @@ class Maze3D {
 
 		this.scene.add( mesh );*/
 
-		this.camera.position.x = 950;
-		this.camera.position.y = -900;
-		this.camera.position.z = 1300;
+		image.addEventListener('load', function() {
+			let scale = 0.4;
+			this.scene.position.x = -image.getBBox().width / 2 * scale;
+			this.scene.position.z = image.getBBox().width / 2 * scale;
+			// this.scene.position.y = image.getBBox().height / 2 * scale;
+			this.scene.scale.x = this.scene.scale.y = this.scene.scale.z = scale;
+			this.scene.rotation.x = Math.PI / 2;
+		}.bind(this));
+		
+
+		//this.camera.position.x = 950;
+		// this.camera.position.y = -900;
+		// this.camera.position.z = 500;
+		this.camera.rotation.x = Math.PI / 2;
+		this.camera.position.y = -500;
 	}
 
 	saveAsObj() {
@@ -888,7 +904,11 @@ hotkeys('ctrl+x', function(event, handler) {
 		}
 		entity.destroy();
 	}
-})
+});
+
+hotkeys('ctrl+e', function(event, handler) {
+	maze.saveAsObj();
+});
 
 /* --------------------================-------------------- */
 /*                          Events                          */
@@ -924,7 +944,6 @@ window.addEventListener('load', updateViewBox);
 draggable(paper, {
 	mousemove: function(dx, dy) {
 		if(mouse.shiftKey) {
-			console.log(dx, dy);
 			viewBox.x = Math.round(viewBox.x - dx * 0.6);
 			viewBox.y = Math.round(viewBox.y - dy * 0.6);
 
@@ -940,7 +959,7 @@ draggable(paper, {
 
 maze = new Maze3D();
 
-container.appendChild(maze.renderer.domElement);
+// container.appendChild(maze.renderer.domElement);
 
 // add entities from database
 
