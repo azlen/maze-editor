@@ -32,10 +32,15 @@ canvas {
 
 .wall {
 	fill: #000000;
+	stroke: #000000;
 }
 
 .handle {
 	stroke: #FFFFFF;
+}
+
+.handle.has-comment, .wall.has-comment {
+	fill: #66CD00;
 }
 
 .bezier-handle {
@@ -57,4 +62,21 @@ canvas {
 	font-size: 10pt;
 	padding: 20px;
 	border: 1px solid #999;
+	box-sizing: border-box;
+	max-height: 100%;
+	overflow-y: auto;
+}
+
+.comments .comment {
+	border: 1px solid #000;
+	background-color: #eee;
+}
+
+.comments .comment:hover {
+	background-color: #dec;
+}
+
+
+.hidden {
+	display: none;
 }

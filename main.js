@@ -165,6 +165,9 @@ let entities = {};
 
 let maze;
 
+let MODE = {WALL:0, ZONE: 1}
+let mode = MODE.WALL;
+
 let paper, image, handleContainer, wallContainer, commentsContainer;
 let pointCounter, wallCounter;
 let container = h('div.container', [
@@ -188,15 +191,17 @@ let container = h('div.container', [
 			h('li', h('b', '2: '), ' set second point (hovered point) and create line between first and second point (also, second point becomes new first point)'),
 			h('li', h('b', 'q: '), ' create point at mouse pos'),
 			h('li', h('b', 'w: '), ' toggle bezier for line (hovered line)'),
-			h('li', h('b', 'ctrl+x: '), ' delete line/point at mouse pos (point must have not lines attached)'),
+			h('li', h('b', 'c: '), ' add comment to hovered point/line'),
+			h('li', h('b', 'ctrl+x: '), ' delete line/point/comment at mouse pos (point must have not lines attached)'),
 			h('li', h('b', 'ctrl+e: '), ' EXPORT 3D MAZE FILE (hint: you can open it with Blender, it is pretty cool!)'),
+			h('li', h('b', 'ctrl+r: '), " Export txt file of points and stuff... (kinda useless unless you're name starts with 'a' and is a palindrome)"),
 		]),
 		h('h3', 'comments'),
 		commentsContainer = h('ul.comments', [
-			h('li', h('i', 'coming soon (probably)')),
+			/*h('li', h('i', 'coming soon (probably)')),
 			h('br'), h('br'),
 			h('li', 'OK, I imported the maze into Unity and started walking around and I was soooo confused and lost (and that was supposed to be in the "easy" section)... This is gonna be amazing!'),
-			h('li', 'Algernon would complete this maze faster than me!'),
+			h('li', 'Algernon would complete this maze faster than me!'),*/
 		]),
 	])
 ]);
@@ -322,12 +327,27 @@ function addCounter(c, n) {
 	}
 }
 
+function setMode(newMode) {
+	mode = newMode;
+	Object.values(entities).forEach(function(entity) {
+		if(entity.constructor === Handle) {
+			if(entity.mode === mode) {
+				entity.show();
+			} else {
+				entity.hide();
+			}
+		}
+	});
+}
+
 /* --------------------================-------------------- */
 /*                           Other                          */
 /* --------------------================-------------------- */
 
 class Entity {
 	constructor(_id) {
+		this.destroyed = false;
+
 		if(_id) {
 			this.id = _id;
 		} else {
@@ -337,13 +357,40 @@ class Entity {
 		entities[this.id] = this;
 
 		this.ref = database.ref(`entities/${this.id}`);
+
+		this.mode = mode;
+		this.comment = null;
 	}
 
 	toJSON() {}
 	fromJSON() {}
 
+	setComment(text) {
+		this.element.classList.add('has-comment');
+		this.comment = text;
+		if(!this.comment_element) {
+			this.comment_element = h('li.comment', {'data-id': this.id}, this.comment);
+			commentsContainer.appendChild(this.comment_element);
+		} else {
+			this.comment_element.textContent = this.comment;
+		}
+		this.ref.set(this.toJSON());
+	}
+
+	removeComment() {
+		this.element.classList.remove('has-comment');
+		this.comment = null;
+		commentsContainer.removeChild(this.comment_element);
+		this.ref.set(this.toJSON());
+		this.comment_element = null;
+	}
+
 	removeReference(inDatabase) {
 		if(inDatabase !== false) this.ref.remove();
+		if(this.mesh) {
+			this.mesh.geometry.dispose();
+			maze.scene.remove(this.mesh);
+		}
 		delete entities[this.id];
 	}
 }
@@ -359,6 +406,9 @@ class Handle extends Entity {
 		} else {
 			super(arguments[0]);
 		}
+
+		this.x = 0;
+		this.y = 0;
 
 		this._origin = {x: 0, y: 0};
 
@@ -376,6 +426,8 @@ class Handle extends Entity {
 
 		if(arguments[0].constructor === Number) {
 			this.setPosition(arguments[0], arguments[1], false);
+		} else {
+			this.update3D();
 		}
 
 		this.ref.on('value', function(snapshot) {
@@ -387,13 +439,21 @@ class Handle extends Entity {
 		return {
 			type: 'Handle',
 			x: this._x,
-			y: this._y
+			y: this._y,
+			comment: this.comment,
 		}
 	}
 
 	fromJSON(o) {
 		if(o === null) return;
+
 		this.setPosition(o.x, o.y, true);
+
+		if(o.comment) {
+			this.setComment(o.comment)
+		} else if(this.comment) {
+			this.removeComment();
+		};
 	}
 
 	// make position of this handle relative to specified parent handle
@@ -543,6 +603,21 @@ class Handle extends Entity {
 
 		// update database
 		this.ref.set(this.toJSON());
+
+		// update 3D
+		//this.update3D();
+	}
+
+	update3D() {
+		if(!this.mesh) {
+			var geometry = new THREE.CylinderGeometry( 2, 2, 10, 16 );
+			var material = new THREE.MeshBasicMaterial( {color: 0xff0099} );
+			this.mesh = new THREE.Mesh( geometry, material );
+			maze.scene.add( this.mesh );
+		}
+
+		this.mesh.position.x = this.x;
+		this.mesh.position.y = -this.y;
 	}
 
 	// activate all callbacks, passing this handle as an argument
@@ -607,8 +682,12 @@ class Handle extends Entity {
 
 	// destroy this handle
 	destroy() {
-		this.element.parentElement.removeChild(this.element); // remove handle from it's parent
-		this.removeReference();	
+		if(!this.destroyed) {
+			this.element.parentElement.removeChild(this.element); // remove handle from it's parent
+			this.removeReference();
+
+			this.destroyed = true;
+		}	
 	}
 }
 
@@ -648,6 +727,8 @@ class Wall extends Entity {
 	toJSON() {
 		return {
 			type: 'Wall',
+			mode: this.mode,
+			comment: this.comment,
 			pA_id: this.pA.id,
 			pB_id: this.pB.id,
 			bezierHandle_id: (this.bezierHandle 
@@ -659,6 +740,9 @@ class Wall extends Entity {
 	fromJSON(o) {
 		let pr = Promise.resolve();
 		if(o === null) return;
+
+		if(o.mode) this.mode = o.mode;
+		
 		if(!this.pA && !this.pB) {
 
 			// use async await?
@@ -680,6 +764,12 @@ class Wall extends Entity {
 			pr.then(function() {
 				this.applyCallbacks();
 				this.updatePath();
+
+				if(o.comment) {
+					this.setComment(o.comment)
+				} else if(this.comment) {
+					this.removeComment();
+				};
 			}.bind(this));
 		}
 		if(!this.bezierHandle && o.bezierHandle_id) {
@@ -787,12 +877,14 @@ class Wall extends Entity {
 	}
 
 	destroy() {
-		this.element.parentElement.removeChild(this.element);
-		if(this.bezierHandle) this.bezierHandle.destroy();
-		this.removeCallbacks();
-		this.removeReference();
+		if(!this.destroyed) {
+			this.element.parentElement.removeChild(this.element);
+			if(this.bezierHandle) this.bezierHandle.destroy();
+			this.removeCallbacks();
+			this.removeReference();
+		}
 
-		maze.scene.remove(this.mesh);
+		// maze.scene.remove(this.mesh);
 	}
 }
 
@@ -813,22 +905,6 @@ class Maze3D {
 		this.renderer.domElement.style.width = '450px';
 		this.renderer.domElement.style.height = '300px';
 
-		// this.scene.rotation.x = Math.PI/2;
-
-		// let shape = pointsToShape(strokeToPoints(svg('path', { 'd': 'M0 0L10 0L10 10' })));
-		/*let shape = pointsToShape([{x: 0, y: 0}, {x: 10, y: 0}, {x: 10, y: 10}]);
-
-		let extrudeSettings = { 
-			steps: 1, 
-			amount: 10, 
-			bevelEnabled: false
-		};
-		let geometry = new THREE.ExtrudeGeometry( shape, extrudeSettings );
-
-		let material = new THREE.MeshBasicMaterial( {color: 0xffffff } );
-		let mesh = new THREE.Mesh( geometry, material );
-
-		this.scene.add( mesh );*/
 
 		image.addEventListener('load', function() {
 			let scale = 0.4;
@@ -855,6 +931,44 @@ class Maze3D {
 		saveAs(blob, "maze.obj");
 	}
 
+	saveAsPoints() {
+		let allpoints = Object.values(entities).filter(function(entity) {
+			if(entity.constructor === Handle && entity.callbacks.length > 0) {
+				return false;
+			} else {
+				return true;
+			}
+		}).map(function(entity) {
+			function fixPoint(p) {
+				let scale = 0.4;
+				return {
+					x: 	-( /* flip horizontally */
+						(p.x - image.getBBox().width / 2) /* center maze */
+						* scale) /* scale maze */
+						.toFixed(1) /* round to closest tenth (converts to string)*/, 
+					y: 	((p.y - image.getBBox().height / 2) /* center maze */
+						* scale) /* scale maze */
+						.toFixed(1) /* round to closest tenth (converts to string)*/
+				}
+			}
+			if(entity.constructor === Wall) {
+				return `W ${entity.getPoints().map(function(point) {
+					let p = fixPoint(point);
+					return `${p.x},${p.y}`;
+				}).join('|')}`;
+			} else if(entity.constructor === Handle) {
+				// if(entity.callbacks.length === 0) {
+				let p = fixPoint(entity);
+				return `P ${p.x},${p.y}`;
+				// }
+			}
+		}).join('\n');
+
+
+		let blob = new Blob([allpoints], {'type': 'text/plain'});
+		saveAs(blob, "maze_points.txt");
+	}
+
 	update() {
 		requestAnimationFrame( this.update.bind(this) );
 
@@ -870,15 +984,26 @@ let classReference = { Entity, Handle, Wall, Maze3D };
 
 hotkeys('q', function(event, handler) {
 	new Handle(mouse.x, mouse.y);
-});
+}); // create point
 
-hotkeys('w', function(event, handler) {
+hotkeys('w, c', function(event, handler) {
 	let _id = getClosestDataID(mouse.target);
 	let w = entities[_id];
-	if(w.constructor === Wall) {
-		w.toggleBezierHandle();
+	switch(handler.key) {
+		case 'w':
+			if(w.constructor === Wall) {
+				w.toggleBezierHandle();
+			}
+			break;
+		case 'c':
+			let comment = prompt("Please enter your comment");
+			if(comment) {
+				w.setComment(comment);
+			}
+			break;
 	}
-});
+	
+}); // turn line into bezier, comment
 
 hotkeys('1, 2', function(event, handler) {
 	let _id = getClosestDataID(mouse.target);
@@ -893,22 +1018,37 @@ hotkeys('1, 2', function(event, handler) {
 				p1 = p;
 		}
 	}
-});
+}); // point 1, point 2
+
+hotkeys('9, 0', function(event, handler) {
+	switch(handler.key) {
+		case '9': setMode(MODE.WALL); break;
+		case '0': setMode(MODE.ZONE); break
+	}
+})
 
 hotkeys('ctrl+x', function(event, handler) {
 	let _id = getClosestDataID(mouse.target);
 	let entity = entities[_id];
 	if(entity) {
+		if(mouse.target.classList.contains('comment')) {
+			entity.removeComment();
+			return;
+		}
 		if(entity.callbacks && entity.callbacks.length > 0) {
 			return;
 		}
 		entity.destroy();
 	}
-});
+}); // destroy entity/comment
 
 hotkeys('ctrl+e', function(event, handler) {
 	maze.saveAsObj();
-});
+}); // export 3D
+
+hotkeys('ctrl+r', function(event, handler) {
+	maze.saveAsPoints();
+}); // export text
 
 /* --------------------================-------------------- */
 /*                          Events                          */

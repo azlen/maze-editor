@@ -1,16 +1,20 @@
 # TODO
 
-[ ] put on github
+## Editor
+[X] create different modes
+    [ ] polygon "zones"
+    [ ] viewpoints?
+    [ ] special points (e.g. Player spawn, cow, etc.)
 
-[X] delete lines and handles with hotkey
-[ ] store all lines and handles in firebase
-[X] turn line into bezier w/ extra point (style bezier handle differently)
-[ ] create viewpoints
-[ ] connect viewpoints (how to tell if straight vs right vs left)
+[ ] fill polygon?
+[ ] center and fix point positions (not just in 3d)
+[ ] comments section
+[ ] updates section
 
-[ ] mark correct path(s)?
-
-[X] create three js view
-[ ] extrude walls three js
-[ ] create cameras for viewpoints
-[ ] export three js into unity?
+## Unity
+[X] bring in triangulation function
+[ ] render "zone" polygons as ceilings (triangulated)
+[ ] create floor (basic plane for now)
+[ ] create cylinders for points (just single points for now)
+[ ] fix wall extrusion function, fill in complete 3d shape? (or at least tops to look better)
+[ ] Create player
